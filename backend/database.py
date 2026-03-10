@@ -14,14 +14,12 @@ supabase = get_supabase()
 # ⚙️ CONFIGURAÇÕES DA EMPRESA (SMTP)
 # ==========================================
 def obter_configuracoes(empresa_id):
-    """Busca as configurações de e-mail da empresa logada."""
+    if empresa_id == "admin_master": return None # O Admin não tem servidor próprio
     resposta = supabase.table("configuracoes").select("*").eq("empresa_id", empresa_id).execute()
-    if resposta.data:
-        return resposta.data[0]
-    return None
+    return resposta.data[0] if resposta.data else None
 
 def salvar_configuracoes(empresa_id, host, porta, user_smtp, senha_app):
-    """Salva ou atualiza os dados de disparo de e-mail da empresa."""
+    if empresa_id == "admin_master": return
     dados = {
         "empresa_id": empresa_id,
         "host": host,
@@ -29,27 +27,30 @@ def salvar_configuracoes(empresa_id, host, porta, user_smtp, senha_app):
         "user_smtp": user_smtp,
         "senha_app": senha_app
     }
-    # O comando 'upsert' é inteligente: se não existe, ele cria. Se existe, ele atualiza.
     supabase.table("configuracoes").upsert(dados, on_conflict="empresa_id").execute()
 
 # ==========================================
 # 📊 PESQUISAS E PERGUNTAS
 # ==========================================
 def listar_pesquisas(empresa_id):
-    """Traz apenas as pesquisas da empresa logada."""
-    resposta = supabase.table("pesquisas").select("*").eq("empresa_id", empresa_id).execute()
+    if empresa_id == "admin_master":
+        # SUPERPODER: Admin vê as pesquisas de TODAS as empresas
+        resposta = supabase.table("pesquisas").select("*").execute()
+    else:
+        # Cliente normal vê apenas as dele
+        resposta = supabase.table("pesquisas").select("*").eq("empresa_id", empresa_id).execute()
     return resposta.data
 
 def criar_pesquisa(id_pesquisa, empresa_id, nome):
-    """Cria uma nova pesquisa atrelada à empresa."""
+    if empresa_id == "admin_master":
+        st.error("Faça login como uma empresa cliente para criar pesquisas.")
+        return
     supabase.table("pesquisas").insert({"id": id_pesquisa, "empresa_id": empresa_id, "nome": nome}).execute()
 
 def excluir_pesquisa(id_pesquisa):
-    """Deleta a pesquisa (e tudo o que está atrelado a ela) da nuvem."""
     supabase.table("pesquisas").delete().eq("id", id_pesquisa).execute()
 
 def listar_perguntas(pesquisa_id):
-    """Busca as perguntas de uma pesquisa específica."""
     resposta = supabase.table("perguntas").select("*").eq("pesquisa_id", pesquisa_id).execute()
     return resposta.data
 
@@ -58,12 +59,11 @@ def adicionar_pergunta(pesquisa_id, texto):
 
 def deletar_pergunta(pergunta_id):
     supabase.table("perguntas").delete().eq("id", pergunta_id).execute()
-    
+
 # ==========================================
 # 📩 RESPOSTAS DOS CLIENTES
 # ==========================================
 def salvar_resposta_cliente(pesquisa_id, respostas_json):
-    """Salva o formulário respondido pelo cliente usando formato JSON."""
     supabase.table("respostas").insert({
         "pesquisa_id": pesquisa_id,
         "dados_json": respostas_json
@@ -73,9 +73,7 @@ def salvar_resposta_cliente(pesquisa_id, respostas_json):
 # 👥 CLIENTES (BASE DE CONTATOS)
 # ==========================================
 def salvar_clientes_lote(pesquisa_id, df_clientes):
-    """Apaga a lista antiga e salva a nova na nuvem."""
     supabase.table("clientes").delete().eq("pesquisa_id", pesquisa_id).execute()
-    
     dados = []
     for _, row in df_clientes.iterrows():
         dados.append({
@@ -87,33 +85,31 @@ def salvar_clientes_lote(pesquisa_id, df_clientes):
         supabase.table("clientes").insert(dados).execute()
 
 def listar_clientes(pesquisa_id):
-    """Busca os clientes salvos na nuvem para esta pesquisa."""
     resposta = supabase.table("clientes").select("*").eq("pesquisa_id", pesquisa_id).execute()
     return resposta.data
 
 def limpar_clientes(pesquisa_id):
-    """Apaga a lista de clientes de uma pesquisa."""
     supabase.table("clientes").delete().eq("pesquisa_id", pesquisa_id).execute()
 
 # ==========================================
 # 📈 PAINEL DE RESULTADOS (DASHBOARD)
 # ==========================================
 def listar_respostas(empresa_id):
-    """Busca todas as pesquisas da empresa e depois as respostas delas."""
-    # 1. Obter todas as pesquisas da empresa
-    pesquisas = supabase.table("pesquisas").select("id, nome").eq("empresa_id", empresa_id).execute()
+    if empresa_id == "admin_master":
+        # SUPERPODER: Admin carrega os dados de todo mundo
+        pesquisas = supabase.table("pesquisas").select("id, nome").execute()
+    else:
+        pesquisas = supabase.table("pesquisas").select("id, nome").eq("empresa_id", empresa_id).execute()
+        
     if not pesquisas.data:
         return []
     
-    # 2. Extrair apenas os IDs das pesquisas
     ids_pesquisas = [p['id'] for p in pesquisas.data]
     if not ids_pesquisas:
         return []
         
-    # 3. Obter as respostas que pertencem a esses IDs
     respostas = supabase.table("respostas").select("*").in_("pesquisa_id", ids_pesquisas).execute()
     
-    # 4. Juntar o nome da pesquisa aos dados da resposta para facilitar no gráfico
     mapa_pesquisas = {p['id']: p['nome'] for p in pesquisas.data}
     resultados = []
     for r in respostas.data:
@@ -121,3 +117,72 @@ def listar_respostas(empresa_id):
         resultados.append(r)
         
     return resultados
+
+# ==========================================
+# 🏢 GESTÃO DE EMPRESAS E USUÁRIOS (SaaS)
+# ==========================================
+def listar_empresas():
+    resposta = supabase.table("empresas").select("*").execute()
+    return resposta.data
+
+def criar_empresa(nome):
+    resposta = supabase.table("empresas").insert({"nome": nome}).execute()
+    if isinstance(resposta.data, list) and len(resposta.data) > 0:
+        return resposta.data[0]
+    return None
+
+def alterar_status_empresa(empresa_id, novo_status):
+    supabase.table("empresas").update({"status": novo_status}).eq("id", empresa_id).execute()
+
+def excluir_empresa(empresa_id):
+    supabase.table("empresas").delete().eq("id", empresa_id).execute()
+
+def listar_usuarios(empresa_id=None):
+    if empresa_id:
+        resposta = supabase.table("usuarios").select("*").eq("empresa_id", empresa_id).execute()
+    else:
+        # Puxa todos os usuários e junta com o nome da empresa
+        resposta = supabase.table("usuarios").select("*, empresas(nome)").execute()
+    return resposta.data
+
+def criar_usuario(empresa_id, nome, email, senha):
+    dados = {
+        "empresa_id": empresa_id,
+        "nome": nome,
+        "email": email,
+        "senha": senha
+    }
+    supabase.table("usuarios").insert(dados).execute()
+
+def alterar_status_usuario(usuario_id, novo_status):
+    supabase.table("usuarios").update({"status": novo_status}).eq("id", usuario_id).execute()
+
+def excluir_usuario(usuario_id):
+    supabase.table("usuarios").delete().eq("id", usuario_id).execute()
+
+def autenticar_usuario(email, senha):
+    """Verifica se o usuário existe, se a senha bate e se ele ou a empresa não estão bloqueados."""
+    if email == "admin@castilhos.com" and senha == "1234":
+        return {"status": "sucesso", "empresa_id": "admin_master"}
+        
+    try:
+        resposta = supabase.table("usuarios").select("*, empresas(status)").eq("email", email).eq("senha", senha).execute()
+        
+        if not resposta.data:
+            return {"status": "erro", "mensagem": "E-mail ou senha incorretos."}
+            
+        usuario = resposta.data[0]
+        
+        if usuario.get('status') == 'bloqueado':
+            return {"status": "erro", "mensagem": "Seu usuário está bloqueado. Contate o suporte."}
+            
+        empresa_status = 'ativo'
+        if 'empresas' in usuario and isinstance(usuario['empresas'], dict):
+            empresa_status = usuario['empresas'].get('status', 'ativo')
+            
+        if empresa_status == 'bloqueado':
+            return {"status": "erro", "mensagem": "O acesso da sua empresa está suspenso."}
+            
+        return {"status": "sucesso", "empresa_id": usuario['empresa_id'], "usuario_nome": usuario['nome']}
+    except Exception as e:
+        return {"status": "erro", "mensagem": f"Erro de banco de dados: {str(e)}"}

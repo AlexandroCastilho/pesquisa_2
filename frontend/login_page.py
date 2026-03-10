@@ -1,67 +1,45 @@
 import streamlit as st
-from supabase import create_client
-import uuid
-
-# Conecta ao Supabase usando os segredos
-@st.cache_resource
-def init_supabase():
-    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
-
-supabase = init_supabase()
+from backend.database import autenticar_usuario # <-- Trocamos o import aqui!
 
 def exibir_login():
-    st.title("🔐 Acesso ao Sistema Castilho's")
-    st.write("Bem-vindo ao portal de Gestão de Pesquisas.")
-    
-    # Criamos abas para Login e para Cadastrar nova Empresa (para você vender)
-    aba1, aba2 = st.tabs(["Entrar", "Cadastrar Nova Empresa"])
-    
-    with aba1:
-        with st.form("form_login"):
-            email_login = st.text_input("E-mail da Empresa")
-            senha_login = st.text_input("Senha", type="password")
-            btn_login = st.form_submit_button("Entrar", use_container_width=True) # ou width='stretch'
+    st.markdown("""
+        <style>
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        [data-testid="stForm"] {
+            background-color: var(--secondary-background-color);
+            padding: 2.5rem 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border: 1px solid rgba(128,128,128,0.2);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    col_vazia_esq, col_centro, col_vazia_dir = st.columns([1, 1.2, 1])
+
+    with col_centro:
+        st.write("<br><br><br>", unsafe_allow_html=True)
+        with st.form("login_form", clear_on_submit=False):
+            st.markdown("<h2 style='text-align: center; color: var(--text-color); margin-bottom: 5px; font-family: sans-serif;'>Acesso Corporativo</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: var(--faded-text-color); font-size: 14px; margin-bottom: 25px; font-family: sans-serif;'>Portal de Gestão de Pesquisas</p>", unsafe_allow_html=True)
             
-            if btn_login:
-                # 1. Vai no Supabase e procura a empresa por esse e-mail (usamos o campo nome_fantasia como email provisório para login simples, ou podemos usar Auth real)
-                # Para simplificar agora, vamos checar se o email está na tabela de configuracoes
-                resposta = supabase.table("configuracoes").select("empresa_id, user_smtp").eq("user_smtp", email_login).execute()
+            email_digitado = st.text_input("E-mail corporativo", placeholder="ex: admin@castilhos.com")
+            senha_digitada = st.text_input("Senha de acesso", type="password", placeholder="••••••••")
+            
+            st.write("<br>", unsafe_allow_html=True)
+            submit = st.form_submit_button("Entrar no Sistema", use_container_width=True, type="primary")
+            
+            if submit:
+                # AGORA USAMOS O NOVO MOTOR DE AUTENTICAÇÃO
+                resultado = autenticar_usuario(email_digitado, senha_digitada)
                 
-                # NOTA: O ideal será termos uma tabela 'usuarios', mas como o Supabase tem o Auth, 
-                # vamos usar uma simulação simples até você dominar o Supabase Auth.
-                if len(resposta.data) > 0 or (email_login == "admin@castilhos.com" and senha_login == "1234"):
+                if resultado["status"] == "sucesso":
                     st.session_state['logado'] = True
-                    # Se for o admin mestre, damos um ID fictício. Se for cliente, pegamos o ID dele.
-                    if email_login == "admin@castilhos.com":
-                        st.session_state['empresa_id'] = "admin_master"
-                    else:
-                        st.session_state['empresa_id'] = resposta.data[0]['empresa_id']
-                        
-                    st.success("Login efetuado com sucesso!")
+                    st.session_state['empresa_id'] = resultado["empresa_id"]
+                    if "usuario_nome" in resultado:
+                        st.session_state['usuario_nome'] = resultado["usuario_nome"] # Guarda o nome para dar oi!
                     st.rerun()
                 else:
-                    st.error("E-mail ou senha incorretos, ou empresa não cadastrada.")
-
-    with aba2:
-        st.info("Área exclusiva para cadastro de novos clientes (Venda do SaaS).")
-        with st.form("form_cadastro"):
-            nome_empresa = st.text_input("Nome da Empresa (ex: Amafil)")
-            email_admin = st.text_input("E-mail do Administrador (Login)")
-            
-            btn_cadastrar = st.form_submit_button("Criar Conta e Liberar Acesso")
-            
-            if btn_cadastrar:
-                if nome_empresa and email_admin:
-                    # 1. Cria a empresa nova no Supabase
-                    nova_empresa = supabase.table("empresas").insert({"nome_fantasia": nome_empresa}).execute()
-                    id_nova_empresa = nova_empresa.data[0]['id']
-                    
-                    # 2. Cria a linha de configurações zerada para essa empresa, usando o email de admin como login
-                    supabase.table("configuracoes").insert({
-                        "empresa_id": id_nova_empresa,
-                        "user_smtp": email_admin, # Usando como referência de login por enquanto
-                    }).execute()
-                    
-                    st.success(f"✅ Empresa {nome_empresa} cadastrada! Ela já pode fazer login usando o e-mail: {email_admin}")
-                else:
-                    st.warning("Preencha todos os campos.")
+                    st.error(resultado["mensagem"]) # Mostra se está bloqueado ou senha errada

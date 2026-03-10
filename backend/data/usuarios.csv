@@ -1,0 +1,4 @@
+email,senha,nome
+admin@teste.com,pbkdf2:sha256:1000000$eum6uXYBdnWmbhTO$b157955c19bf1cc2845e6b24e2918578f9f225a7ee92f39235ce4474b7b71760,Administrador
+alexandro@castilhos.com,pbkdf2:sha256:1000000$DBjLcEUq2XU1yN2N$e58d83d50ceb263acb188c74559fbd1ce56d5e9811e7b889e93f9aad6ef90cfe,Alexandro
+alexmachado1607@gmail.com,pbkdf2:sha256:1000000$GHXaamNu89khBYKJ$a5aafb71571e112b2ab8d9b26c4a0f3b4c57eb512f19f131b6b9f35bcdb51af2,Alexandro

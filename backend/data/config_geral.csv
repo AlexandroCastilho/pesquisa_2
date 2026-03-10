@@ -1,2 +1,2 @@
 empresa,email_contato,host,porta,user_smtp,senha_app
-Amafil,vendas1@amafil.com,smtps.uol.com.br,465,vendas1@amafil.com,Amafil@2025
+Amafil,vendas1@amafil.com.br,pop3.uhserver.com,995,vendas1@amafil.com.br,Amafil@2025

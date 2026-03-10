@@ -1,14 +1,21 @@
 import streamlit as st
 import pandas as pd
-import os
 import uuid
+from backend.database import (
+    listar_pesquisas, criar_pesquisa, excluir_pesquisa,
+    listar_perguntas, adicionar_pergunta, deletar_pergunta,
+    salvar_clientes_lote, listar_clientes, limpar_clientes # <-- Importamos as funções novas
+)
+from backend.email_service import enviar_convite_pesquisa
 
 def exibir_gestao_pesquisas():
     st.title("📝 Gestão de Pesquisas")
+
+    if 'empresa_id' not in st.session_state:
+        st.error("Sessão expirada. Faça login novamente.")
+        return
     
-    # Criar pasta de dados se não existir
-    if not os.path.exists('backend/data'):
-        os.makedirs('backend/data')
+    empresa_id = st.session_state['empresa_id']
 
     if 'aba_interna' not in st.session_state:
         st.session_state.aba_interna = "lista"
@@ -20,21 +27,19 @@ def exibir_gestao_pesquisas():
             st.rerun()
             
         st.subheader("Suas Pesquisas")
-        caminho_pesquisas = 'backend/data/pesquisas.csv'
+        pesquisas_db = listar_pesquisas(empresa_id)
         
-        if os.path.exists(caminho_pesquisas):
-            df = pd.read_csv(caminho_pesquisas)
-            for i, row in df.iterrows():
+        if pesquisas_db:
+            for row in pesquisas_db:
                 with st.expander(f"📋 {row['nome']}"):
                     col1, col2 = st.columns(2)
-                    if col1.button("Editar Perguntas/Clientes", key=f"ed_{row['id']}"):
+                    if col1.button("Editar / Disparar", key=f"ed_{row['id']}"):
                         st.session_state.pesquisa_ativa = row['id']
                         st.session_state.pesquisa_nome = row['nome']
                         st.session_state.aba_interna = "editar"
                         st.rerun()
                     if col2.button("Excluir", key=f"del_p_{row['id']}"):
-                        df = df.drop(i)
-                        df.to_csv(caminho_pesquisas, index=False)
+                        excluir_pesquisa(row['id'])
                         st.rerun()
         else:
             st.info("Você ainda não criou nenhuma pesquisa.")
@@ -47,119 +52,102 @@ def exibir_gestao_pesquisas():
         if st.button("Salvar e Definir Perguntas"):
             if nome_p:
                 id_p = str(uuid.uuid4())[:8]
-                nova_p = pd.DataFrame([[id_p, nome_p]], columns=['id', 'nome'])
-                caminho_pesquisas = 'backend/data/pesquisas.csv'
-                
-                if not os.path.exists(caminho_pesquisas):
-                    nova_p.to_csv(caminho_pesquisas, index=False)
-                else:
-                    pd.concat([pd.read_csv(caminho_pesquisas), nova_p]).to_csv(caminho_pesquisas, index=False)
-                
+                criar_pesquisa(id_p, empresa_id, nome_p)
                 st.session_state.pesquisa_ativa = id_p
                 st.session_state.pesquisa_nome = nome_p
                 st.session_state.aba_interna = "editar"
                 st.rerun()
 
-    # --- TELA 3: CONFIGURAR PESQUISA ESPECÍFICA (ABAS) ---
+    # --- TELA 3: CONFIGURAR PESQUISA E DISPARAR ---
     elif st.session_state.aba_interna == "editar":
         st.button("⬅️ Voltar para Lista", on_click=lambda: st.session_state.update({"aba_interna": "lista"}))
         st.header(f"Configurando: {st.session_state.pesquisa_nome}")
         
-        # AQUI É ONDE AS TABS SÃO DEFINIDAS
-        tab1, tab2, tab3 = st.tabs(["Perguntas", "Clientes (CSV)", "Disparar"])
+        # Devolvemos as 3 abas originais!
+        tab1, tab2, tab3 = st.tabs(["Perguntas", "Base de Clientes", "Disparar E-mails"])
+        id_atual = st.session_state.pesquisa_ativa
         
-        # --- TAB PERGUNTAS ---
+        # --- TAB 1: PERGUNTAS ---
         with tab1:
-            id_atual = st.session_state.pesquisa_ativa
-            arq_perguntas = f'backend/data/perguntas_{id_atual}.csv'
-            
             st.subheader("Adicionar Perguntas")
-            
-            if os.path.exists(arq_perguntas):
-                df_p = pd.read_csv(arq_perguntas)
-                lista_p = df_p['texto'].tolist()
-            else:
-                lista_p = []
+            perguntas_db = listar_perguntas(id_atual)
 
             nova_pergunta = st.text_input("Nova pergunta:", key="input_nova_p")
             if st.button("➕ Adicionar"):
                 if nova_pergunta:
-                    lista_p.append(nova_pergunta)
-                    pd.DataFrame(lista_p, columns=['texto']).to_csv(arq_perguntas, index=False)
-                    st.success("Gravado!")
+                    adicionar_pergunta(id_atual, nova_pergunta)
+                    st.success("Gravada na nuvem!")
                     st.rerun()
 
             st.write("---")
-            for idx, p_texto in enumerate(lista_p):
+            for idx, p in enumerate(perguntas_db):
                 c1, c2 = st.columns([4, 1])
-                c1.text(f"{idx+1}. {p_texto}")
-                if c2.button("🗑️", key=f"del_p_item_{idx}"):
-                    lista_p.pop(idx)
-                    pd.DataFrame(lista_p, columns=['texto']).to_csv(arq_perguntas, index=False)
+                c1.text(f"{idx+1}. {p['texto']}")
+                if c2.button("🗑️", key=f"del_p_item_{p['id']}"):
+                    deletar_pergunta(p['id'])
                     st.rerun()
 
-# --- TAB CLIENTES (CORRIGIDA) ---
+        # --- TAB 2: CLIENTES (MEMORIZA NA NUVEM) ---
         with tab2:
-            st.subheader("Base de Contatos para esta Pesquisa")
-            id_atual = st.session_state.pesquisa_ativa
-            arq_clientes = f'backend/data/clientes_{id_atual}.csv'
+            st.subheader("Base de Contatos na Nuvem")
+            clientes_db = listar_clientes(id_atual)
             
-            # Verificar se já existe uma lista salva
-            if os.path.exists(arq_clientes):
-                df_salvo = pd.read_csv(arq_clientes)
-                st.success(f"✅ Já existe uma lista com {len(df_salvo)} contatos salva para esta pesquisa.")
-                st.dataframe(df_salvo.head(5), use_container_width=True)
-                if st.button("Substituir Lista/Limpar"):
-                    os.remove(arq_clientes)
+            if clientes_db:
+                st.success(f"✅ Já existe uma lista com {len(clientes_db)} contatos salva para esta pesquisa.")
+                # Exibe a tabela puxando do Supabase
+                df_salvo = pd.DataFrame(clientes_db)
+                st.dataframe(df_salvo[['email', 'nome']])
+                
+                if st.button("Substituir Lista / Limpar"):
+                    limpar_clientes(id_atual)
                     st.rerun()
             else:
                 uploaded_file = st.file_uploader("Upload do CSV (colunas: email, nome)", type="csv")
                 if uploaded_file:
                     df_c = pd.read_csv(uploaded_file)
                     if 'email' in df_c.columns:
-                        df_c.to_csv(arq_clientes, index=False)
-                        st.success(f"Base salva com {len(df_c)} contatos!")
-                        st.rerun() # Recarrega para mostrar a tabela salva
+                        salvar_clientes_lote(id_atual, df_c) # Salva no Supabase!
+                        st.success("Lista salva na nuvem com sucesso!")
+                        st.rerun()
                     else:
                         st.error("O CSV deve ter uma coluna chamada 'email'.")
 
-# --- TAB DISPARO (COM FEEDBACK REAL) ---
+        # --- TAB 3: DISPARO ---
         with tab3:
             st.subheader("🚀 Central de Disparo")
-            id_atual = st.session_state.pesquisa_ativa
-            arq_clientes = f'backend/data/clientes_{id_atual}.csv'
+            clientes_db = listar_clientes(id_atual) # Lê direto do Supabase
             
-            if not os.path.exists(arq_clientes):
-                st.warning("⚠️ Você precisa subir uma lista de clientes na aba ao lado antes de disparar.")
+            if not clientes_db:
+                st.warning("⚠️ Você precisa subir uma lista na aba 'Base de Clientes' antes de disparar.")
             else:
-                df_para_envio = pd.read_csv(arq_clientes)
-                st.info(f"Pronto para enviar para {len(df_para_envio)} contatos.")
+                st.info(f"Pronto para enviar e-mails para {len(clientes_db)} clientes.")
                 
-                if st.button("Confirmar e Iniciar Envio Agora"):
+                if st.button("Confirmar e Iniciar Envio Agora", type="primary"):
                     progresso = st.progress(0)
                     status_text = st.empty()
                     log_container = st.expander("Ver Detalhes do Envio", expanded=True)
                     
                     sucessos = 0
                     erros = 0
+                    link_pesquisa = f"http://localhost:8501/pesquisa?id={id_atual}"
                     
-                    for i, row in df_para_envio.iterrows():
-                        status_text.text(f"Enviando para: {row['email']}...")
+                    for i, cliente in enumerate(clientes_db):
+                        email_cliente = cliente['email']
+                        nome_cliente = cliente.get('nome', 'Cliente')
                         
-                        # Chama a função de e-mail (ajuste conforme seu email_service.py)
-                        # Aqui simulamos o sucesso, mas você deve usar sua função real:
-                        # sucesso, msg = enviar_convite_pesquisa(row['email'], row.get('nome', 'Cliente'))
-                        sucesso = True # Simulação para teste
+                        status_text.text(f"Enviando para: {email_cliente}...")
+                        
+                        sucesso, msg = enviar_convite_pesquisa(email_cliente, nome_cliente, link_pesquisa, empresa_id)
                         
                         if sucesso:
                             sucessos += 1
-                            log_container.write(f"✅ Enviado: {row['email']}")
+                            log_container.write(f"✅ Enviado: {email_cliente}")
                         else:
                             erros += 1
-                            log_container.write(f"❌ Erro: {row['email']}")
+                            log_container.write(f"❌ Erro ({email_cliente}): {msg}")
                         
-                        # Atualiza barra de progresso
-                        progresso.progress((i + 1) / len(df_para_envio))
+                        progresso.progress((i + 1) / len(clientes_db))
                     
                     st.success(f"Finalizado! {sucessos} e-mails enviados, {erros} erros.")
-                    st.balloons()
+                    if sucessos > 0:
+                        st.balloons()

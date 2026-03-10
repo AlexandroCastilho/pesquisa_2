@@ -1,42 +1,123 @@
-import pandas as pd
-import os
-from datetime import datetime
+import streamlit as st
+from supabase import create_client
 
-CAMINHO_RESPOSTAS = os.path.join('backend', 'data', 'respostas.csv')
+# Inicializa a conexão com a nuvem (Supabase)
+@st.cache_resource
+def get_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
-def salvar_pesquisa(dados):
-    try:
-        # Adiciona a data/hora da resposta
-        dados['data_hora'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        df_nova_resposta = pd.DataFrame([dados])
+supabase = get_supabase()
 
-        if not os.path.exists(CAMINHO_RESPOSTAS):
-            df_nova_resposta.to_csv(CAMINHO_RESPOSTAS, index=False)
-        else:
-            df_nova_resposta.to_csv(CAMINHO_RESPOSTAS, mode='a', header=False, index=False)
+# ==========================================
+# ⚙️ CONFIGURAÇÕES DA EMPRESA (SMTP)
+# ==========================================
+def obter_configuracoes(empresa_id):
+    """Busca as configurações de e-mail da empresa logada."""
+    resposta = supabase.table("configuracoes").select("*").eq("empresa_id", empresa_id).execute()
+    if resposta.data:
+        return resposta.data[0]
+    return None
+
+def salvar_configuracoes(empresa_id, host, porta, user_smtp, senha_app):
+    """Salva ou atualiza os dados de disparo de e-mail da empresa."""
+    dados = {
+        "empresa_id": empresa_id,
+        "host": host,
+        "porta": porta,
+        "user_smtp": user_smtp,
+        "senha_app": senha_app
+    }
+    # O comando 'upsert' é inteligente: se não existe, ele cria. Se existe, ele atualiza.
+    supabase.table("configuracoes").upsert(dados, on_conflict="empresa_id").execute()
+
+# ==========================================
+# 📊 PESQUISAS E PERGUNTAS
+# ==========================================
+def listar_pesquisas(empresa_id):
+    """Traz apenas as pesquisas da empresa logada."""
+    resposta = supabase.table("pesquisas").select("*").eq("empresa_id", empresa_id).execute()
+    return resposta.data
+
+def criar_pesquisa(id_pesquisa, empresa_id, nome):
+    """Cria uma nova pesquisa atrelada à empresa."""
+    supabase.table("pesquisas").insert({"id": id_pesquisa, "empresa_id": empresa_id, "nome": nome}).execute()
+
+def excluir_pesquisa(id_pesquisa):
+    """Deleta a pesquisa (e tudo o que está atrelado a ela) da nuvem."""
+    supabase.table("pesquisas").delete().eq("id", id_pesquisa).execute()
+
+def listar_perguntas(pesquisa_id):
+    """Busca as perguntas de uma pesquisa específica."""
+    resposta = supabase.table("perguntas").select("*").eq("pesquisa_id", pesquisa_id).execute()
+    return resposta.data
+
+def adicionar_pergunta(pesquisa_id, texto):
+    supabase.table("perguntas").insert({"pesquisa_id": pesquisa_id, "texto": texto}).execute()
+
+def deletar_pergunta(pergunta_id):
+    supabase.table("perguntas").delete().eq("id", pergunta_id).execute()
+    
+# ==========================================
+# 📩 RESPOSTAS DOS CLIENTES
+# ==========================================
+def salvar_resposta_cliente(pesquisa_id, respostas_json):
+    """Salva o formulário respondido pelo cliente usando formato JSON."""
+    supabase.table("respostas").insert({
+        "pesquisa_id": pesquisa_id,
+        "dados_json": respostas_json
+    }).execute()
+
+# ==========================================
+# 👥 CLIENTES (BASE DE CONTATOS)
+# ==========================================
+def salvar_clientes_lote(pesquisa_id, df_clientes):
+    """Apaga a lista antiga e salva a nova na nuvem."""
+    supabase.table("clientes").delete().eq("pesquisa_id", pesquisa_id).execute()
+    
+    dados = []
+    for _, row in df_clientes.iterrows():
+        dados.append({
+            "pesquisa_id": pesquisa_id,
+            "email": row['email'],
+            "nome": row.get('nome', 'Cliente')
+        })
+    if dados:
+        supabase.table("clientes").insert(dados).execute()
+
+def listar_clientes(pesquisa_id):
+    """Busca os clientes salvos na nuvem para esta pesquisa."""
+    resposta = supabase.table("clientes").select("*").eq("pesquisa_id", pesquisa_id).execute()
+    return resposta.data
+
+def limpar_clientes(pesquisa_id):
+    """Apaga a lista de clientes de uma pesquisa."""
+    supabase.table("clientes").delete().eq("pesquisa_id", pesquisa_id).execute()
+
+# ==========================================
+# 📈 PAINEL DE RESULTADOS (DASHBOARD)
+# ==========================================
+def listar_respostas(empresa_id):
+    """Busca todas as pesquisas da empresa e depois as respostas delas."""
+    # 1. Obter todas as pesquisas da empresa
+    pesquisas = supabase.table("pesquisas").select("id, nome").eq("empresa_id", empresa_id).execute()
+    if not pesquisas.data:
+        return []
+    
+    # 2. Extrair apenas os IDs das pesquisas
+    ids_pesquisas = [p['id'] for p in pesquisas.data]
+    if not ids_pesquisas:
+        return []
         
-        return True
-    except Exception as e:
-        print(f"Erro ao salvar pesquisa: {e}")
-        return False
-
-def carregar_respostas():
-    try:
-        if os.path.exists(CAMINHO_RESPOSTAS):
-            return pd.read_csv(CAMINHO_RESPOSTAS)
-        return pd.DataFrame() # Retorna vazio se não houver dados
-    except Exception as e:
-        print(f"Erro ao carregar dados: {e}")
-        return pd.DataFrame()
-
-CAMINHO_CONFIG = os.path.join('backend', 'data', 'config_pesquisa.csv')
-CAMINHO_CLIENTES = os.path.join('backend', 'data', 'base_clientes.csv')
-
-def salvar_config_perguntas(lista_perguntas):
-    df = pd.DataFrame(lista_perguntas, columns=['pergunta'])
-    df.to_csv(CAMINHO_CONFIG, index=False)
-
-def carregar_config_perguntas():
-    if os.path.exists(CAMINHO_CONFIG):
-        return pd.read_csv(CAMINHO_CONFIG)['pergunta'].tolist()
-    return ["Qual sua nota geral?"] # Pergunta padrão caso esteja vazio
+    # 3. Obter as respostas que pertencem a esses IDs
+    respostas = supabase.table("respostas").select("*").in_("pesquisa_id", ids_pesquisas).execute()
+    
+    # 4. Juntar o nome da pesquisa aos dados da resposta para facilitar no gráfico
+    mapa_pesquisas = {p['id']: p['nome'] for p in pesquisas.data}
+    resultados = []
+    for r in respostas.data:
+        r['nome_pesquisa'] = mapa_pesquisas.get(r['pesquisa_id'], 'Pesquisa Desconhecida')
+        resultados.append(r)
+        
+    return resultados

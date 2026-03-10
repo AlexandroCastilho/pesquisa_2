@@ -129,7 +129,8 @@ def exibir_gestao_pesquisas():
                     
                     sucessos = 0
                     erros = 0
-                    link_pesquisa = f"http://localhost:8501/pesquisa?id={id_atual}"
+                    url_do_seu_sistema = "https://pesquisa2-g7kcvoyq9qmoagsqgebph2.streamlit.app/"
+                    link_pesquisa = f"{url_do_seu_sistema}/?id={id_atual}"
                     
                     for i, cliente in enumerate(clientes_db):
                         email_cliente = cliente['email']

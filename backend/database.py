@@ -13,6 +13,8 @@ def get_supabase():
 supabase = get_supabase()
 
 
+
+
 # ==========================================
 # ⚙️ CONFIGURAÇÕES DA EMPRESA (SMTP)
 # ==========================================
@@ -134,14 +136,44 @@ def listar_respostas(empresa_id):
 # ==========================================
 def listar_empresas():
     resposta = supabase.table("empresas").select("*").execute()
-    return resposta.data
+    empresas = resposta.data or []
+    for emp in empresas:
+        emp["display_nome"] = _nome_empresa_display(emp)
+    return empresas
+
 
 
 def criar_empresa(nome):
-    resposta = supabase.table("empresas").insert({"nome": nome}).execute()
-    if isinstance(resposta.data, list) and len(resposta.data) > 0:
-        return resposta.data[0]
-    return None
+    nome = (nome or "").strip()
+    if not nome:
+        raise ValueError("Nome da empresa é obrigatório.")
+
+    tentativas = [
+        {"nome": nome},
+        {"empresa": nome},
+        {"nome_fantasia": nome},
+        {"razao_social": nome},
+    ]
+
+    ultimo_erro = None
+    for payload in tentativas:
+        try:
+            resposta = supabase.table("empresas").insert(payload).execute()
+            if isinstance(resposta.data, list) and len(resposta.data) > 0:
+                empresa = resposta.data[0]
+                empresa["display_nome"] = _nome_empresa_display(empresa)
+                return empresa
+            return None
+        except Exception as exc:
+            ultimo_erro = exc
+            if not any(_erro_coluna_inexistente(exc, col) for col in payload.keys()):
+                raise
+
+    raise RuntimeError(
+        "Não foi possível cadastrar empresa: tabela 'empresas' sem coluna de nome compatível "
+        "('nome', 'empresa', 'nome_fantasia' ou 'razao_social')."
+    ) from ultimo_erro
+
 
 
 def alterar_status_empresa(empresa_id, novo_status):
@@ -157,7 +189,7 @@ def listar_usuarios(empresa_id=None):
         resposta = supabase.table("usuarios").select("*").eq("empresa_id", empresa_id).execute()
     else:
         # Puxa todos os usuários e junta com o nome da empresa
-        resposta = supabase.table("usuarios").select("*, empresas(nome)").execute()
+        resposta = supabase.table("usuarios").select("*, empresas(*)").execute()
     return resposta.data
 
 

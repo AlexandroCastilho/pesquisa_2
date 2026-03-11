@@ -5,6 +5,13 @@ from backend.database import (
     listar_usuarios, criar_usuario, alterar_status_usuario, excluir_usuario
 )
 
+
+def _nome_empresa_display(empresa):
+    if not isinstance(empresa, dict):
+        return "Sem Nome"
+    return empresa.get("display_nome") or empresa.get("nome") or empresa.get("empresa") or "Sem Nome"
+
+
 def exibir_painel_admin():
     st.title("👑 Sala de Controle (SaaS)")
     st.write("Gerencie seus clientes, autorize acessos e suspenda inadimplentes.")
@@ -19,9 +26,12 @@ def exibir_painel_admin():
             nome_emp = col_nome.text_input("Nome Fantasia ou Razão Social da Empresa")
             if col_btn.form_submit_button("➕ Salvar Empresa", use_container_width=True):
                 if nome_emp:
-                    criar_empresa(nome_emp)
-                    st.success(f"Empresa '{nome_emp}' cadastrada com sucesso!")
-                    st.rerun()
+                    try:
+                        criar_empresa(nome_emp)
+                        st.success(f"Empresa '{nome_emp}' cadastrada com sucesso!")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Não foi possível cadastrar a empresa: {exc}")
 
         st.divider()
         st.subheader("Base de Clientes")
@@ -33,7 +43,7 @@ def exibir_painel_admin():
                 status_atual = emp.get('status', 'ativo')
                 cor_status = "🟢 Ativa" if status_atual == 'ativo' else "🔴 Bloqueada"
                 
-                with st.expander(f"{emp.get('nome', 'Sem Nome')} - {cor_status}"):
+                with st.expander(f"{_nome_empresa_display(emp)} - {cor_status}"):
                     st.write(f"**ID no Banco:** `{emp.get('id', '')}`")
                     
                     # Blindagem da data de cadastro
@@ -60,20 +70,27 @@ def exibir_painel_admin():
         if not empresas:
             st.warning("⚠️ Você precisa cadastrar uma Empresa primeiro antes de criar usuários.")
         else:
-            opcoes_emp = {e['nome']: e['id'] for e in empresas if 'nome' in e and 'id' in e}
-            
+            opcoes_emp = []
+            for emp in empresas:
+                if 'id' not in emp:
+                    continue
+                label = f"{_nome_empresa_display(emp)} ({str(emp['id'])[:8]})"
+                opcoes_emp.append((label, emp['id']))
+
             with st.form("form_novo_usuario"):
                 st.subheader("Criar Acesso (Login)")
-                emp_selecionada = st.selectbox("Vincular este funcionário a qual empresa?", list(opcoes_emp.keys()))
-                
+                emp_labels = [label for label, _ in opcoes_emp]
+                emp_selecionada = st.selectbox("Vincular este funcionário a qual empresa?", emp_labels)
+                mapa_empresas = {label: emp_id for label, emp_id in opcoes_emp}
+
                 c1, c2, c3 = st.columns(3)
                 nome_user = c1.text_input("Nome do Usuário")
                 email_user = c2.text_input("E-mail de Login")
                 senha_user = c3.text_input("Senha Inicial", type="password")
-                
+
                 if st.form_submit_button("➕ Criar Credencial", use_container_width=True):
                     if nome_user and email_user and senha_user:
-                        criar_usuario(opcoes_emp[emp_selecionada], nome_user, email_user, senha_user)
+                        criar_usuario(mapa_empresas[emp_selecionada], nome_user, email_user, senha_user)
                         st.success("Acesso liberado com sucesso!")
                         st.rerun()
 
@@ -85,7 +102,7 @@ def exibir_painel_admin():
                 # Cria uma tabela bonita para visualizar todo mundo
                 df_users = []
                 for u in usuarios:
-                    nome_empresa = u.get('empresas', {}).get('nome', 'Desconhecida') if isinstance(u.get('empresas'), dict) else 'Desconhecida'
+                    nome_empresa = _nome_empresa_display(u.get('empresas', {})) if isinstance(u.get('empresas'), dict) else 'Desconhecida'
                     status_u = u.get('status', 'ativo')
                     
                     df_users.append({

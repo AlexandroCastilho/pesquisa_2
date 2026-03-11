@@ -74,12 +74,3 @@ python ler_banco.py
 python -m unittest tests/test_security.py
 ```
 
-
-## Observação importante
-
-Se você estiver vendo apenas algo como:
-
-`usuario,senha,nome ...`
-
-isso é conteúdo legado e **não** é o README atual do projeto.
-O README correto é este arquivo (`README.md`) com a documentação completa.

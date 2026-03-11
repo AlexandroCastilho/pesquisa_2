@@ -13,21 +13,6 @@ def get_supabase():
 supabase = get_supabase()
 
 
-def _nome_empresa_display(empresa: dict) -> str:
-    if not isinstance(empresa, dict):
-        return "Sem Nome"
-    return (
-        empresa.get("nome")
-        or empresa.get("empresa")
-        or empresa.get("nome_fantasia")
-        or empresa.get("razao_social")
-        or "Sem Nome"
-    )
-
-
-def _erro_coluna_inexistente(exc: Exception, coluna: str) -> bool:
-    texto = str(exc)
-    return "PGRST204" in texto and f"'{coluna}'" in texto
 
 
 # ==========================================
@@ -157,6 +142,7 @@ def listar_empresas():
     return empresas
 
 
+
 def criar_empresa(nome):
     nome = (nome or "").strip()
     if not nome:
@@ -187,6 +173,7 @@ def criar_empresa(nome):
         "Não foi possível cadastrar empresa: tabela 'empresas' sem coluna de nome compatível "
         "('nome', 'empresa', 'nome_fantasia' ou 'razao_social')."
     ) from ultimo_erro
+
 
 
 def alterar_status_empresa(empresa_id, novo_status):

@@ -25,7 +25,7 @@ def exibir_login():
             st.markdown("<h2 style='text-align: center; color: var(--text-color); margin-bottom: 5px; font-family: sans-serif;'>Acesso Corporativo</h2>", unsafe_allow_html=True)
             st.markdown("<p style='text-align: center; color: var(--faded-text-color); font-size: 14px; margin-bottom: 25px; font-family: sans-serif;'>Portal de Gestão de Pesquisas</p>", unsafe_allow_html=True)
             
-            email_digitado = st.text_input("E-mail corporativo", placeholder="ex: admin@castilhos.com")
+            email_digitado = st.text_input("E-mail corporativo", placeholder="ex: seu@email.com")
             senha_digitada = st.text_input("Senha de acesso", type="password", placeholder="••••••••")
             
             st.write("<br>", unsafe_allow_html=True)
